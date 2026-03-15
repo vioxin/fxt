@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX Game - ランキング</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { 
+            --bg: #0b0e11; 
+            --panel: #181a20; 
+            --text: #eaecef; 
+            --text-muted: #848e9c; 
+            --border: #2b3139;
+            --gold: #FFD700;
+            --silver: #C0C0C0;
+            --bronze: #CD7F32;
+            --accent: #fcd535;
+        }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            background-color: var(--bg); 
+            color: var(--text); 
+            margin: 0; 
+            padding: 0; 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            min-height: 100vh;
+            overflow-y: auto;
+            background-image: radial-gradient(circle at top, #1a1e24 0%, transparent 50%);
+        }
+        
+        /* ヘッダー */
+        .header { 
+            width: 100%; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            padding: 15px 30px; 
+            box-sizing: border-box;
+            background-color: rgba(24, 26, 32, 0.8); 
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--border); 
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 { margin: 0; font-size: 1.5rem; color: var(--accent); letter-spacing: 2px; }
+        .btn-header { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 8px 20px; border-radius: 6px; cursor: pointer; transition: 0.3s; text-decoration: none; font-size: 0.9rem; font-weight: bold;}
+        .btn-header:hover { background: var(--accent); color: #000; border-color: var(--accent); }
+
+        /* ランキングコンテナ */
+        .ranking-container {
+            width: 100%;
+            max-width: 600px;
+            margin: 40px 20px;
+        }
+
+        .title-area {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .title-area h2 {
+            font-size: 2rem;
+            margin: 0;
+            background: linear-gradient(90deg, #fcd535, #ffaa00);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .title-area p {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+
+        /* ランキングリスト */
+        .ranking-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .ranking-item {
+            background-color: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 15px 25px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.3s ease;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: slideUp 0.5s forwards;
+        }
+
+        .ranking-item:hover {
+            transform: scale(1.02) translateY(0);
+            border-color: var(--text-muted);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            background-color: #1f2229;
+        }
+
+        /* ランク（順位）バッジ */
+        .rank-badge {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--bg);
+            border: 2px solid var(--border);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-weight: bold;
+            font-size: 1.1rem;
+            color: var(--text-muted);
+        }
+
+        /* プレイヤー情報 */
+        .player-info {
+            flex: 1;
+            margin-left: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .player-name {
+            font-size: 1.2rem;
+            font-weight: bold;
+        }
+        
+        /* 残高 */
+        .player-balance {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: var(--text);
+            font-family: monospace;
+        }
+
+        /* トップ3の特別スタイル */
+        .rank-1 { border-color: var(--gold); background: linear-gradient(145deg, rgba(255, 215, 0, 0.1), transparent); }
+        .rank-1 .rank-badge { background-color: var(--gold); color: #000; border-color: #fff; box-shadow: 0 0 15px rgba(255, 215, 0, 0.5); }
+        .rank-1 .player-name { color: var(--gold); }
+        .rank-1 .player-balance { color: var(--gold); }
+
+        .rank-2 { border-color: var(--silver); }
+        .rank-2 .rank-badge { background-color: var(--silver); color: #000; border-color: #fff; }
+        .rank-2 .player-name { color: var(--silver); }
+
+        .rank-3 { border-color: var(--bronze); }
+        .rank-3 .rank-badge { background-color: var(--bronze); color: #000; border-color: #fff; }
+        .rank-3 .player-name { color: var(--bronze); }
+
+        /* ロード中の表示 */
+        .loading {
+            text-align: center;
+            color: var(--accent);
+            font-size: 1.2rem;
+            margin-top: 50px;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes slideUp {
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>FX Game</h1>
+        <a href="home.html" class="btn-header">ホームに戻る</a>
+    </div>
+
+    <div class="ranking-container">
+        <div class="title-area">
+            <h2>Billionaire Ranking</h2>
+            <p>総資産トップ50のトレーダーたち</p>
+        </div>
+
+        <div id="loading" class="loading">データベースから総資産を取得中...</div>
+        
+        <div class="ranking-list" id="ranking-list">
+            </div>
+    </div>
+
+    <script>
+        // ▼▼▼ ここにSupabaseのURLとキーを貼り付けます ▼▼▼
+        const SUPABASE_URL = 'https://kcjcirlqdhbighipryal.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_FiOt7O2ja2KNUeiVPakkVw_eiV7CmpO';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        async function init() {
+            // ログインチェック（未ログインなら弾く）
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.href = 'index.html';
+                return;
+            }
+
+            await loadRanking();
+        }
+
+        async function loadRanking() {
+            // Supabaseから「balance（残高）」が多い順（降順）にトップ50件を取得
+            const { data, error } = await supabaseClient
+                .from('players')
+                .select('username, balance')
+                .order('balance', { ascending: false })
+                .limit(50);
+
+            const loadingEl = document.getElementById('loading');
+            const listEl = document.getElementById('ranking-list');
+
+            if (error) {
+                loadingEl.innerText = 'データの取得に失敗しました。';
+                console.error(error);
+                return;
+            }
+
+            loadingEl.style.display = 'none'; // ロード文字を消す
+
+            // 取得したデータをHTMLに変換して追加
+            data.forEach((player, index) => {
+                const rank = index + 1;
+                const item = document.createElement('div');
+                
+                // 順位ごとのクラスを設定
+                let rankClass = '';
+                let rankIcon = rank; // 基本は数字
+                
+                if (rank === 1) { rankClass = 'rank-1'; rankIcon = '👑'; }
+                else if (rank === 2) { rankClass = 'rank-2'; }
+                else if (rank === 3) { rankClass = 'rank-3'; }
+
+                item.className = `ranking-item ${rankClass}`;
+                // アニメーションが順番に実行されるように、遅延時間を設定
+                item.style.animationDelay = `${index * 0.05}s`; 
+
+                // プレイヤーネームが空の場合は「名無しトレーダー」にする
+                const displayName = player.username || '名無しトレーダー';
+                
+                // 残高を見やすくカンマ区切りにする
+                const displayBalance = '¥' + Math.round(player.balance).toLocaleString();
+
+                item.innerHTML = `
+                    <div class="rank-badge">${rankIcon}</div>
+                    <div class="player-info">
+                        <div class="player-name">${displayName}</div>
+                    </div>
+                    <div class="player-balance">${displayBalance}</div>
+                `;
+                
+                listEl.appendChild(item);
+            });
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

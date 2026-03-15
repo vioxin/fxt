@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX Game - ログイン</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        body { font-family: sans-serif; background: #121212; color: white; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .auth-box { background: #1e1e1e; padding: 30px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); width: 100%; max-width: 350px; }
+        h2 { text-align: center; color: #00bcd4; margin-top: 0; }
+        input { width: 100%; padding: 10px; margin-bottom: 15px; background: #333; border: 1px solid #444; color: white; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-bottom: 10px; transition: 0.2s; }
+        .btn-login { background: #007aff; color: white; }
+        .btn-login:hover { background: #3395ff; }
+        .btn-register { background: #34c759; color: white; }
+        .btn-register:hover { background: #4ceb75; }
+        .message { font-size: 0.85rem; text-align: center; margin-top: 10px; color: #ff9800; }
+    </style>
+</head>
+<body>
+
+<div class="auth-box">
+    <h2>FXトレードバトル</h2>
+    
+    <input type="email" id="email" placeholder="メールアドレス" required>
+    <input type="password" id="password" placeholder="パスワード (6文字以上)" required>
+    
+    <button class="btn-login" onclick="login()">ログイン</button>
+    <button class="btn-register" onclick="register()">新規登録</button>
+    
+    <div id="status-msg" class="message"></div>
+</div>
+
+<script>
+    // ▼▼▼ ここにSupabaseのURLとキーを貼り付けます ▼▼▼
+    const SUPABASE_URL = 'https://kcjcirlqdhbighipryal.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_FiOt7O2ja2KNUeiVPakkVw_eiV7CmpO';
+    // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+    // 【修正点】変数名を supabaseClient に変更して名前の被りを防ぎました
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // 捨てメアドのドメインリスト（簡易版）
+    const blockedDomains = ['sute.jp', 'kuku.lu', 'instaddr.win', '10minutemail.com'];
+
+    function showMessage(text, color = '#ff9800') {
+        const msgDiv = document.getElementById('status-msg');
+        msgDiv.innerText = text;
+        msgDiv.style.color = color;
+    }
+
+    // 新規登録処理
+    async function register() {
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+
+        if (!email || !password) {
+            showMessage('メールアドレスとパスワードを入力してください。');
+            return;
+        }
+
+        // 簡易サブ垢対策：ブラウザの記憶をチェック
+        if (localStorage.getItem('has_registered')) {
+            showMessage('新規登録に失敗しました', '#ff3b30');
+            return;
+        }
+
+        // 捨てメアド対策：ドメインチェック
+        const domain = email.split('@')[1];
+        if (blockedDomains.includes(domain)) {
+            showMessage('新規登録に失敗しました', '#ff3b30');
+            return;
+        }
+
+        showMessage('登録処理中...', '#00bcd4');
+
+        // 【修正点】supabaseClient を使用して通信します
+        const { data, error } = await supabaseClient.auth.signUp({
+            email: email,
+            password: password,
+        });
+
+        if (error) {
+            showMessage('登録エラー: ' + error.message, '#ff3b30');
+        } else {
+            // 登録成功したら、ブラウザに「登録済み」の証拠を残す
+            localStorage.setItem('has_registered', 'true');
+            showMessage('確認メールを送信しました！メール内のリンクをクリックして認証を完了させてください。', '#34c759');
+        }
+    }
+
+    // ログイン処理
+    // ログイン処理
+    async function login() {
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+
+        if (!email || !password) {
+            showMessage('メールアドレスとパスワードを入力してください。');
+            return;
+        }
+
+        showMessage('ログイン中...', '#00bcd4');
+
+        const { data, error } = await supabaseClient.auth.signInWithPassword({
+            email: email,
+            password: password,
+        });
+
+        if (error) {
+            showMessage('ログイン失敗: ' + (error.message === 'Email not confirmed' ? 'メール認証が完了していません。' : 'メアドかパスワードが違います。'), '#ff3b30');
+        } else {
+            showMessage('ログイン成功！データを確認中...', '#34c759');
+            
+            const userId = data.user.id;
+
+            // ▼▼▼ ここから追加：データベース（playersテーブル）の確認と作成 ▼▼▼
+            // 1. まず、この人のデータが既に players テーブルにあるか探す
+            const { data: playerData, error: fetchError } = await supabaseClient
+                .from('players')
+                .select('*')
+                .eq('user_id', userId)
+                .single(); // 1件だけ取得
+
+            if (!playerData) {
+                showMessage('初回ログインです。口座を準備中...', '#00bcd4');
+                const username = email.split('@')[0];
+                const { error: insertError } = await supabaseClient
+                    .from('players')
+                    .insert([
+                        { user_id: userId, username: username, balance: 1000000 }
+                    ]);
+
+                if (insertError) {
+                    showMessage('口座の作成に失敗しました: ' + insertError.message, '#ff3b30');
+                    return;
+                }
+            }
+
+
+            showMessage('ゲームの準備が完了しました！', '#34c759');
+            setTimeout(() => {
+                window.location.href = "home.html";
+
+            }, 1000);
+        }
+    }
+</script>
+
+</body>
+</html>

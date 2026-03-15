@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX Game - ホーム画面</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --bg: #0b0e11; --panel: #181a20; --text: #eaecef; --text-muted: #848e9c; --green: #0ecb81; --red: #f6465d; --border: #2b3139; }
+        body { font-family: -apple-system, sans-serif; background-color: var(--bg); color: var(--text); display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .home-container { background-color: var(--panel); padding: 40px; border-radius: 8px; width: 400px; text-align: center; border: 1px solid var(--border); }
+        .balance-display { font-size: 2rem; color: #fcd535; margin: 20px 0; font-weight: bold; }
+        
+        /* ユーザーネーム変更エリア */
+        .profile-section { display: flex; gap: 10px; margin-bottom: 30px; }
+        .profile-section input { flex: 1; padding: 10px; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 4px; }
+        .profile-section button { padding: 10px 15px; background: var(--border); color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .profile-section button:hover { background: #3b434e; }
+
+        /* モード選択ボタン */
+        .mode-btn { display: block; width: 100%; padding: 15px; margin-bottom: 15px; border: none; border-radius: 4px; font-size: 1.1rem; font-weight: bold; cursor: pointer; text-decoration: none; color: white; transition: 0.2s; box-sizing: border-box; }
+        .mode-low { background-color: #2b3139; }
+        .mode-low:hover { background-color: #3b434e; }
+        .mode-normal { background-color: #0b9e65; }
+        .mode-normal:hover { background-color: var(--green); }
+        .mode-high { background-color: #c93346; }
+        .mode-high:hover { background-color: var(--red); }
+        
+        .logout-link { color: var(--text-muted); text-decoration: underline; cursor: pointer; display: inline-block; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="home-container">
+        <h2>FX Game ダッシュボード</h2>
+        
+        <p>現在の総資産</p>
+        <div class="balance-display" id="disp-balance">¥--</div>
+
+        <div class="profile-section">
+            <input type="text" id="input-username" placeholder="ユーザーネーム">
+            <button onclick="updateUsername()">名前を変更</button>
+        </div>
+
+        <h3>トレードを開始する</h3>
+        <a href="game.html?mode=low" class="mode-btn mode-low">🌱 ローリスク・ローリターン</a>
+        <a href="game.html?mode=normal" class="mode-btn mode-normal">⚖️ 普通相場 (通常モード)</a>
+        <a href="game.html?mode=high" class="mode-btn mode-high">🔥 ハイリスク・ハイリターン</a>
+        <h3 style="margin-top: 30px;">ランキング</h3>
+        <a href="leaderboard.html" class="mode-btn" style="background: linear-gradient(90deg, #fcd535, #ffaa00); color: #000;">👑 リーダーボードを見る</a>
+
+        <div class="logout-link" onclick="logout()">ログアウト</div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://kcjcirlqdhbighipryal.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_FiOt7O2ja2KNUeiVPakkVw_eiV7CmpO';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentUser = null;
+
+        async function init() {
+            // ログインチェック（していなければ index.html に弾く）
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.href = 'index.html';
+                return;
+            }
+            currentUser = session.user;
+            await loadPlayerData();
+        }
+
+        async function loadPlayerData() {
+            const { data } = await supabaseClient.from('players').select('*').eq('user_id', currentUser.id).single();
+            if (data) {
+                document.getElementById('input-username').value = data.username;
+                document.getElementById('disp-balance').innerText = '¥' + Math.round(data.balance).toLocaleString();
+            }
+        }
+
+        // ユーザーネーム変更処理
+        async function updateUsername() {
+            const newName = document.getElementById('input-username').value;
+            if (!newName) return alert("名前を入力してください");
+
+            const { error } = await supabaseClient.from('players').update({ username: newName }).eq('user_id', currentUser.id);
+            if (error) {
+                alert("エラーが発生しました: " + error.message);
+            } else {
+                alert("ユーザーネームを更新しました！");
+            }
+        }
+
+        async function logout() {
+            await supabaseClient.auth.signOut();
+            window.location.href = 'index.html';
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>

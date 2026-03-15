@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX Game - トレード画面</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://unpkg.com/lightweight-charts@3.8.0/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        :root { --bg: #0b0e11; --panel: #181a20; --text: #eaecef; --text-muted: #848e9c; --green: #0ecb81; --red: #f6465d; --border: #2b3139; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        
+        /* ヘッダー */
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background-color: var(--panel); border-bottom: 1px solid var(--border); }
+        .header h1 { margin: 0; font-size: 1.2rem; color: #fcd535; }
+        .user-info { display: flex; gap: 20px; align-items: center; }
+        .info-item { display: flex; flex-direction: column; align-items: flex-end; }
+        .info-label { font-size: 0.75rem; color: var(--text-muted); }
+        .info-value { font-size: 1.1rem; font-weight: bold; }
+        .btn-header { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 5px 15px; border-radius: 4px; cursor: pointer; transition: 0.2s; text-decoration: none; font-size: 0.9rem;}
+        .btn-header:hover { background: var(--border); }
+
+        /* メインレイアウト */
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        
+        /* チャートエリア */
+        .chart-area { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+        #tvchart { flex: 1; width: 100%; }
+
+        /* 注文パネル */
+        .order-panel { width: 300px; background-color: var(--panel); padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; }
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        .input-group label { font-size: 0.85rem; color: var(--text-muted); }
+        .input-group input, .input-group select { background-color: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 10px; border-radius: 4px; outline: none; }
+        .input-group input:focus, .input-group select:focus { border-color: #fcd535; }
+        
+        .trade-buttons { display: flex; gap: 10px; margin-top: 10px; }
+        .btn-trade { flex: 1; padding: 15px; border: none; border-radius: 4px; font-size: 1rem; font-weight: bold; cursor: pointer; color: white; transition: 0.2s; }
+        .btn-buy { background-color: var(--green); }
+        .btn-buy:hover { background-color: #0b9e65; }
+        .btn-sell { background-color: var(--red); }
+        .btn-sell:hover { background-color: #c93346; }
+
+        /* ポジションエリア (画面下部) */
+        .positions-area { height: 200px; background-color: var(--panel); border-top: 1px solid var(--border); overflow-y: auto; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+        th { text-align: left; padding: 10px 20px; color: var(--text-muted); position: sticky; top: 0; background: var(--panel); border-bottom: 1px solid var(--border); z-index: 10; }
+        td { padding: 10px 20px; border-bottom: 1px solid var(--border); }
+        .profit { color: var(--green); }
+        .loss { color: var(--red); }
+        .btn-close { background: var(--border); border: none; color: var(--text); padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .btn-close:hover { background: #3b434e; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1 id="game-title">FX Game</h1>
+        <div class="user-info">
+            <div class="info-item">
+                <span class="info-label">プレイヤー</span>
+                <span class="info-value" id="disp-username">--</span>
+            </div>
+            <div class="info-item">
+                <span class="info-label">残高 (Balance)</span>
+                <span class="info-value" id="disp-balance">¥--</span>
+            </div>
+            <a href="home.html" class="btn-header">ホームに戻る</a>
+            <button class="btn-header" onclick="logout()">ログアウト</button>
+        </div>
+    </div>
+
+    <div class="main-container">
+        <div class="chart-area">
+            <div id="tvchart"></div>
+        </div>
+
+        <div class="order-panel">
+            <div class="input-group">
+                <label>取引通貨 (USD/JPY)</label>
+                <div style="font-size: 1.5rem; text-align: center; margin: 10px 0; font-weight: bold;" id="current-price">150.000</div>
+            </div>
+            <div class="input-group">
+                <label>数量 (ロット)</label>
+                <input type="number" id="input-size" value="10000" step="1000">
+            </div>
+            <div class="input-group">
+                <label>レバレッジ</label>
+                <select id="input-leverage">
+                    <option value="1">1倍</option>
+                    <option value="10">10倍</option>
+                    <option value="25" selected>25倍</option>
+                </select>
+            </div>
+            <div class="trade-buttons">
+                <button class="btn-trade btn-sell" onclick="openPosition('SELL')">売 (SELL)</button>
+                <button class="btn-trade btn-buy" onclick="openPosition('BUY')">買 (BUY)</button>
+            </div>
+            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 20px;">
+                ※この画面はデモです。実際の取引システムとは連動していません。
+            </p>
+        </div>
+    </div>
+
+    <div class="positions-area">
+        <table id="positions-table">
+            <thead>
+                <tr>
+                    <th>種類</th>
+                    <th>数量</th>
+                    <th>約定価格</th>
+                    <th>現在価格</th>
+                    <th>評価損益</th>
+                    <th>決済</th>
+                </tr>
+            </thead>
+            <tbody id="positions-body">
+                </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Supabaseの設定
+        const SUPABASE_URL = 'https://kcjcirlqdhbighipryal.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_FiOt7O2ja2KNUeiVPakkVw_eiV7CmpO';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentUser = null;
+        let dbBalance = 0;
+        let allPositions = { low: [], normal: [], high: [] }; 
+        let positions = [];
+        let currentPrice = 150.000;
+        let lineSeries;
+
+        // ▼▼▼ モード設定の追加 ▼▼▼
+        const urlParams = new URLSearchParams(window.location.search);
+        const currentMode = urlParams.get('mode') || 'normal'; // 指定がなければ普通相場
+
+        // 難易度別の振れ幅（ボラティリティ）設定
+        const volatilityConfig = {
+            low:    { wave1: 0.2, wave2: 0.1, wave3: 0.05, wave4: 0.01, noise: 0.005, name: "ローリスク相場 🌱" },
+            normal: { wave1: 1.5, wave2: 0.5, wave3: 0.2,  wave4: 0.05, noise: 0.02,  name: "普通相場 ⚖️" },
+            high:   { wave1: 5.0, wave2: 2.0, wave3: 0.8,  wave4: 0.3,  noise: 0.15,  name: "ハイリスク相場 🔥" }
+        };
+        const config = volatilityConfig[currentMode];
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        // 1. 起動時の処理
+        async function init() {
+            const { data: { session }, error } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.href = 'index.html';
+                return;
+            }
+            currentUser = session.user;
+            
+            // 画面左上に現在のモード名を表示
+            document.getElementById('game-title').innerText = `FX Game - ${config.name}`;
+
+            await loadPlayerData();
+            initChart();
+            drawInitialHistory(); // チャートの過去履歴を一気に描画
+        }
+
+        async function loadPlayerData() {
+            const { data, error } = await supabaseClient
+                .from('players')
+                .select('*')
+                .eq('user_id', currentUser.id)
+                .single();
+
+            if (data) {
+                document.getElementById('disp-username').innerText = data.username;
+                dbBalance = data.balance;
+                
+                // ▼▼▼ 変更：ポジションの読み込み方法 ▼▼▼
+                // DBに保存されているデータを取り出す
+                const savedData = data.positions;
+
+                // もし過去のデータがただの配列だったら、とりあえずnormalに入れる（互換性対応）
+                if (Array.isArray(savedData)) {
+                    allPositions = { low: [], normal: savedData, high: [] };
+                } 
+                // ちゃんとモードごとのタンスになっていれば、それを採用
+                else if (savedData && typeof savedData === 'object') {
+                    allPositions = savedData;
+                }
+
+                // 「今開いているモード（currentMode）」の引き出しからポジションを取り出す
+                positions = allPositions[currentMode] || [];
+                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                
+                updateBalanceDisplay();
+                renderPositions();
+            }
+        }
+
+        function updateBalanceDisplay() {
+            document.getElementById('disp-balance').innerText = '¥' + Math.round(dbBalance).toLocaleString();
+        }
+
+        // --- チャートと市場の処理 ---
+        function initChart() {
+            const chartContainer = document.getElementById('tvchart');
+            const chartOptions = {
+                width: chartContainer.clientWidth || 600,
+                height: chartContainer.clientHeight || 400,
+                layout: { textColor: '#d1d4dc', background: { type: 'solid', color: '#0b0e11' } },
+                grid: { vertLines: { color: '#2b3139' }, horzLines: { color: '#2b3139' } },
+                timeScale: { timeVisible: true, secondsVisible: true },
+            };
+            
+            const chart = LightweightCharts.createChart(chartContainer, chartOptions);
+            lineSeries = chart.addLineSeries({ color: '#fcd535', lineWidth: 2 });
+            
+            window.addEventListener('resize', () => {
+                chart.resize(chartContainer.clientWidth, chartContainer.clientHeight);
+            });
+        }
+
+        // ▼▼▼ 数式の変更: config変数を使って振れ幅を変える ▼▼▼
+        function getGlobalPrice(timeInSeconds) {
+            let price = 150.000; 
+            
+            price += Math.sin(timeInSeconds / 500) * config.wave1;
+            price += Math.cos(timeInSeconds / 123) * config.wave2;
+            price += Math.sin(timeInSeconds / 31)  * config.wave3;
+            price += Math.cos(timeInSeconds / 7)   * config.wave4;
+            
+            const noise = (Math.sin(timeInSeconds * 12.345) * 10000 % 1) * config.noise;
+            
+            return price + noise;
+        }
+        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+        function drawInitialHistory() {
+            const historyData = [];
+            const nowTime = Math.floor(Date.now() / 1000);
+            
+            // 過去5分間の履歴を描画
+            for (let i = 300; i >= 0; i--) {
+                const t = nowTime - i;
+                historyData.push({ time: t, value: getGlobalPrice(t) });
+            }
+            lineSeries.setData(historyData);
+            
+            currentPrice = getGlobalPrice(nowTime);
+            document.getElementById('current-price').innerText = currentPrice.toFixed(3);
+        }
+
+        function syncGlobalMarket() {
+            const nowTime = Math.floor(Date.now() / 1000);
+            const newPrice = getGlobalPrice(nowTime);
+            
+            const priceDisplay = document.getElementById('current-price');
+            priceDisplay.style.color = newPrice >= currentPrice ? 'var(--green)' : 'var(--red)';
+            
+            currentPrice = newPrice;
+            priceDisplay.innerText = currentPrice.toFixed(3);
+
+            lineSeries.update({ time: nowTime, value: currentPrice });
+            renderPositions();
+        }
+
+        // 1秒ごとに市場を同期
+        setInterval(syncGlobalMarket, 1000);
+
+        // --- 取引処理 ---
+        function openPosition(type) {
+            const size = parseInt(document.getElementById('input-size').value);
+            const leverage = parseInt(document.getElementById('input-leverage').value);
+            
+            if (isNaN(size) || size <= 0) return alert('数量が正しくありません');
+            
+            const requiredMargin = (currentPrice * size) / leverage;
+            if (dbBalance < requiredMargin) {
+                return alert('残高不足です。レバレッジを上げるか数量を減らしてください。');
+            }
+
+            positions.push({ type, size, entryPrice: currentPrice, id: Date.now() });
+            renderPositions();
+            syncToDB('注文(' + type + ')');
+        }
+
+        function closePosition(id) {
+            const index = positions.findIndex(p => p.id === id);
+            if (index > -1) {
+                const pos = positions[index];
+                let pnl = (currentPrice - pos.entryPrice) * pos.size;
+                if (pos.type === 'SELL') pnl = -pnl;
+
+                dbBalance += pnl; 
+                positions.splice(index, 1);
+                
+                updateBalanceDisplay();
+                renderPositions();
+                syncToDB('決済');
+            }
+        }
+
+        function renderPositions() {
+            const tbody = document.getElementById('positions-body');
+            tbody.innerHTML = '';
+            
+            positions.forEach(pos => {
+                let pnl = (currentPrice - pos.entryPrice) * pos.size;
+                if (pos.type === 'SELL') pnl = -pnl;
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="color: ${pos.type === 'BUY' ? 'var(--green)' : 'var(--red)'}; font-weight:bold;">${pos.type}</td>
+                    <td>${pos.size.toLocaleString()}</td>
+                    <td>${pos.entryPrice.toFixed(3)}</td>
+                    <td>${currentPrice.toFixed(3)}</td>
+                    <td class="${pnl >= 0 ? 'profit' : 'loss'}">¥${Math.round(pnl).toLocaleString()}</td>
+                    <td><button class="btn-close" onclick="closePosition(${pos.id})">決済</button></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // DBへのセーブ処理
+        async function syncToDB(actionName) {
+            const balanceDisplay = document.getElementById('disp-balance');
+            balanceDisplay.innerText = 'DB通信中...';
+            balanceDisplay.style.color = '#fcd535'; 
+
+            // ▼▼▼ 変更：今のモードの最新状態を、大元のタンスに反映させる ▼▼▼
+            allPositions[currentMode] = positions;
+
+            const { error } = await supabaseClient
+                .from('players')
+                .update({ 
+                    balance: Math.round(dbBalance),
+                    positions: allPositions // タンス（全モードのデータ）ごとDBに保存！
+                })
+                .eq('user_id', currentUser.id);
+            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+            
+            if (error) {
+                console.error('セーブ失敗:', error);
+                alert('データベースとの通信に失敗しました！');
+            } else {
+                console.log(`[DB通信成功] アクション: ${actionName}`);
+            }
+
+            setTimeout(() => {
+                balanceDisplay.style.color = 'var(--text)';
+                updateBalanceDisplay();
+            }, 500);
+        }
+
+        // ログアウト処理
+        async function logout() {
+            await supabaseClient.auth.signOut();
+            window.location.href = 'index.html';
+        }
+
+        // 起動
+        window.onload = init;
+        
+        // タブ閉じ対策
+        window.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && currentUser) {
+                const url = `${SUPABASE_URL}/rest/v1/players?user_id=eq.${currentUser.id}`;
+                const payload = JSON.stringify({
+                    balance: Math.round(dbBalance),
+                    positions: positions
+                });
+                const headers = new Blob([payload], { type: 'application/json' });
+            }
+        });
+    </script>
+</body>
+</html>
