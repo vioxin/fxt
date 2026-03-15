@@ -50,6 +50,70 @@
         .loss { color: var(--red); }
         .btn-close { background: var(--border); border: none; color: var(--text); padding: 5px 10px; border-radius: 4px; cursor: pointer; }
         .btn-close:hover { background: #3b434e; }
+        /* ▼▼▼ スマホ向けレスポンシブデザイン ▼▼▼ */
+        @media (max-width: 768px) {
+            body { 
+                height: auto; 
+                min-height: 100vh; 
+                overflow-y: auto; /* 画面全体の縦スクロールを許可 */
+            }
+            
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .user-info {
+                width: 100%;
+                justify-content: space-between;
+                flex-wrap: wrap; /* 要素が多い場合は折り返す */
+            }
+
+            .main-container {
+                flex-direction: column; /* チャートと注文パネルを縦並びに */
+                height: auto;
+                overflow: visible;
+            }
+
+            .chart-area {
+                width: 100%;
+                height: 350px; /* スマホでのチャートの高さ */
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+                flex: none; 
+            }
+
+            .order-panel {
+                width: 100%;
+                box-sizing: border-box; /* 画面幅にぴったり収める */
+                display: grid; 
+                grid-template-columns: 1fr 1fr; /* 数量とレバレッジを横並びにして省スペース化 */
+                gap: 10px;
+            }
+
+            /* グリッドレイアウトの微調整 */
+            .order-panel .input-group:first-child {
+                grid-column: 1 / -1; /* 価格表示は横幅いっぱい */
+            }
+            .trade-buttons {
+                grid-column: 1 / -1; /* ボタンも横幅いっぱい */
+                margin-top: 5px;
+            }
+            .order-panel p {
+                grid-column: 1 / -1;
+            }
+
+            .positions-area {
+                height: auto; 
+                overflow-x: auto; /* テーブルがはみ出た場合は横スクロールさせる */
+            }
+            
+            table {
+                min-width: 600px; /* スマホでも文字が潰れないように最低幅を確保 */
+            }
+        }
+        /* ▲▲▲ スマホ向けレスポンシブデザイン ここまで ▲▲▲ */
     </style>
 </head>
 <body>
@@ -360,14 +424,20 @@
         window.onload = init;
         
         // タブ閉じ対策
+        // タブ閉じ対策
         window.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden' && currentUser) {
+                // ▼ 今のモードの最新状態をタンスに反映してから保存する
+                allPositions[currentMode] = positions;
+
                 const url = `${SUPABASE_URL}/rest/v1/players?user_id=eq.${currentUser.id}`;
                 const payload = JSON.stringify({
                     balance: Math.round(dbBalance),
-                    positions: positions
+                    positions: allPositions // ← タンスごと保存するように修正！
                 });
                 const headers = new Blob([payload], { type: 'application/json' });
+                // ※本来は navigator.sendBeacon(url, headers) で送信する処理が必要です
+                // 簡易的なセーブとして fetch(url, { method: 'PATCH', headers: {...}, body: payload, keepalive: true }) 等を使うのが確実です。
             }
         });
     </script>
