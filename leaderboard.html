@@ -209,26 +209,45 @@
         }
 
         async function loadRanking() {
-            // Supabaseから「balance（残高）」が多い順（降順）にトップ50件を取得
-            const { data, error } = await supabaseClient
-                .from('players')
-                .select('username, balance')
-                .order('balance', { ascending: false })
-                .limit(50);
-
             const loadingEl = document.getElementById('loading');
             const listEl = document.getElementById('ranking-list');
 
+            // 1. Supabaseから計算に必要な全データを取得する
+            // （総資産の計算と並び替えはJS側で行うため、orderやlimitは外します）
+            const { data, error } = await supabaseClient
+                .from('players')
+                .select('username, balance, bank_balance, loan_amount');
+
             if (error) {
                 loadingEl.innerText = 'データの取得に失敗しました。';
-                console.error(error);
+                console.error('ランキング取得エラー:', error);
                 return;
             }
 
             loadingEl.style.display = 'none'; // ロード文字を消す
+            listEl.innerHTML = ''; // リストの重複を防ぐため一旦中身をクリア
 
-            // 取得したデータをHTMLに変換して追加
-            data.forEach((player, index) => {
+            // 2. 各プレイヤーの「総資産」を計算して新しいリストを作る
+            const playersWithTotal = data.map(player => {
+                const fx = player.balance || 0;
+                const bank = player.bank_balance || 0;
+                const loan = player.loan_amount || 0;
+                const total = fx + bank - loan; // 総資産の計算
+                
+                return { 
+                    username: player.username, 
+                    totalAssets: total 
+                };
+            });
+
+            // 3. 総資産が多い順（降順）に並び替える
+            playersWithTotal.sort((a, b) => b.totalAssets - a.totalAssets);
+
+            // 4. 上位50名だけを切り出す
+            const top50 = playersWithTotal.slice(0, 50);
+
+            // 5. 取得したデータをHTMLに変換して追加（元の素敵な装飾はそのまま！）
+            top50.forEach((player, index) => {
                 const rank = index + 1;
                 const item = document.createElement('div');
                 
@@ -247,8 +266,8 @@
                 // プレイヤーネームが空の場合は「名無しトレーダー」にする
                 const displayName = player.username || '名無しトレーダー';
                 
-                // 残高を見やすくカンマ区切りにする
-                const displayBalance = '¥' + Math.round(player.balance).toLocaleString();
+                // 【変更】表示する残高を balance ではなく totalAssets に変更
+                const displayBalance = '¥' + Math.round(player.totalAssets).toLocaleString();
 
                 item.innerHTML = `
                     <div class="rank-badge">${rankIcon}</div>
