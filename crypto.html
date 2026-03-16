@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Motto Coin 取引所</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --bg: #0b0e11; --panel: #181a20; --text: #eaecef; --text-muted: #848e9c; --green: #0ecb81; --red: #f6465d; --border: #2b3139; --brand: #fcd535; }
+        body { font-family: -apple-system, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        
+        .header { width: 100%; max-width: 800px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .header h1 { color: var(--brand); margin: 0; font-size: 1.5rem; }
+        .btn-home { text-decoration: none; color: var(--text); border: 1px solid var(--border); padding: 5px 15px; border-radius: 4px; }
+        
+        .dashboard { width: 100%; max-width: 800px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        @media (max-width: 600px) { .dashboard { grid-template-columns: 1fr; } }
+        
+        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 20px; }
+        .card h2 { margin-top: 0; font-size: 1.1rem; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        .value { font-size: 1.8rem; font-weight: bold; margin: 10px 0; }
+        
+        .transfer-box { display: flex; gap: 10px; margin-top: 15px; }
+        .transfer-box input { flex: 1; padding: 10px; background: var(--bg); border: 1px solid var(--border); color: white; border-radius: 4px; }
+        .transfer-box button { padding: 10px; background: var(--border); color: white; border: none; border-radius: 4px; cursor: pointer; }
+        
+        .trade-box { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+        .trade-box label { font-size: 0.85rem; color: var(--text-muted); }
+        .trade-box input { padding: 12px; font-size: 1.1rem; background: var(--bg); border: 1px solid var(--border); color: white; border-radius: 4px; }
+        
+        .btn-trade { padding: 15px; font-size: 1.1rem; font-weight: bold; border: none; border-radius: 4px; cursor: pointer; color: white; }
+        .btn-buy { background: var(--green); margin-bottom: 10px; }
+        .btn-sell { background: var(--red); }
+        
+        .price-display { text-align: center; margin: 20px 0; }
+        .price-display span { font-size: 2.5rem; font-weight: bold; color: var(--brand); }
+        .spread-info { font-size: 0.8rem; color: var(--text-muted); }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🪙 Motto Coin 取引所</h1>
+        <a href="home.html" class="btn-home">ホームに戻る</a>
+    </div>
+
+    <div class="price-display">
+        <div>現在のリアルBTC価格 (1 MTC)</div>
+        <span id="current-price">取得中...</span>
+        <div class="spread-info">※急激な資産増大を防ぐため、購入時は+0.25%、売却時は-0.25%のスプレッド（手数料）が適用されます。</div>
+    </div>
+
+    <div class="dashboard">
+        <div class="card">
+            <h2>🏦 資金移動</h2>
+            <p style="font-size: 0.85rem; color: var(--text-muted);">銀行口座から仮想通貨口座へ円を移動します。</p>
+            <div>銀行残高: <span id="disp-bank">¥0</span></div>
+            <div>仮想通貨口座: <span id="disp-crypto-jpy">¥0</span></div>
+            
+            <div class="transfer-box">
+                <input type="number" id="transfer-amount" placeholder="金額を入力" step="1000">
+                <button onclick="transferToCrypto()">入金</button>
+                <button onclick="transferToBank()">出金</button>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>💹 取引 (現物のみ)</h2>
+            <div>保有 MTC: <span id="disp-mtc" class="value" style="color:var(--brand)">0.000 MTC</span></div>
+            
+            <div class="trade-box">
+                <label>取引数量 (最小 0.001 MTC)</label>
+                <input type="number" id="trade-amount" value="0.01" step="0.001" min="0.001">
+                
+                <div style="display:flex; justify-content: space-between; font-size: 0.85rem; margin-top: 10px;">
+                    <span>予想購入額: <span id="est-buy">¥0</span></span>
+                    <span>予想売却額: <span id="est-sell">¥0</span></span>
+                </div>
+
+                <button class="btn-trade btn-buy" onclick="tradeMTC('BUY')">MTCを買う</button>
+                <button class="btn-trade btn-sell" onclick="tradeMTC('SELL')">MTCを売る</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Supabase設定（ご自身のキーに変更してください）
+        const SUPABASE_URL = 'https://kcjcirlqdhbighipryal.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_FiOt7O2ja2KNUeiVPakkVw_eiV7CmpO';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentUser = null;
+        let dbBankBalance = 0;
+        let dbCryptoJpy = 0;
+        let dbMtcBalance = 0;
+        let realBtcPrice = 0;
+        const SPREAD = 0.0025; // 0.25%の手数料
+
+        async function init() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) { window.location.href = 'index.html'; return; }
+            currentUser = session.user;
+
+            await loadData();
+            fetchBtcPrice();
+            setInterval(fetchBtcPrice, 3000); // 3秒ごとに価格更新
+        }
+
+        async function loadData() {
+            const { data } = await supabaseClient.from('players').select('*').eq('user_id', currentUser.id).single();
+            if (data) {
+                dbBankBalance = data.bank_balance || 0;
+                dbCryptoJpy = data.crypto_jpy || 0;
+                dbMtcBalance = data.mtc_balance || 0;
+                updateUI();
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('disp-bank').innerText = '¥' + Math.floor(dbBankBalance).toLocaleString();
+            document.getElementById('disp-crypto-jpy').innerText = '¥' + Math.floor(dbCryptoJpy).toLocaleString();
+            document.getElementById('disp-mtc').innerText = dbMtcBalance.toFixed(3) + ' MTC';
+        }
+
+        // Binance APIからリアルタイム価格を取得
+        async function fetchBtcPrice() {
+            try {
+                const res = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCJPY');
+                const data = await res.json();
+                realBtcPrice = parseFloat(data.price);
+                
+                document.getElementById('current-price').innerText = '¥' + realBtcPrice.toLocaleString();
+                
+                // 予想額の計算
+                const amount = parseFloat(document.getElementById('trade-amount').value) || 0;
+                const buyPrice = realBtcPrice * (1 + SPREAD);
+                const sellPrice = realBtcPrice * (1 - SPREAD);
+                document.getElementById('est-buy').innerText = '¥' + Math.floor(buyPrice * amount).toLocaleString();
+                document.getElementById('est-sell').innerText = '¥' + Math.floor(sellPrice * amount).toLocaleString();
+            } catch (e) {
+                console.error("価格取得エラー", e);
+            }
+        }
+
+        // 資金移動
+        async function transfer(direction) {
+            const amountStr = document.getElementById('transfer-amount').value;
+            const amount = parseInt(amountStr);
+            if (isNaN(amount) || amount <= 0) return alert("正しい金額を入力してください。");
+
+            if (direction === 'toCrypto') {
+                if (dbBankBalance < amount) return alert("銀行残高が不足しています。");
+                dbBankBalance -= amount;
+                dbCryptoJpy += amount;
+            } else {
+                if (dbCryptoJpy < amount) return alert("仮想通貨口座の残高が不足しています。");
+                dbCryptoJpy -= amount;
+                dbBankBalance += amount;
+            }
+            
+            updateUI();
+            await syncDB("資金移動");
+        }
+        function transferToCrypto() { transfer('toCrypto'); }
+        function transferToBank() { transfer('toBank'); }
+
+        // MTCの売買
+        async function tradeMTC(type) {
+            if (realBtcPrice === 0) return alert("価格データを取得中です...");
+            const amount = parseFloat(document.getElementById('trade-amount').value);
+            
+            if (isNaN(amount) || amount < 0.001) return alert("0.001 MTC以上で入力してください。");
+            
+            if (type === 'BUY') {
+                const cost = amount * realBtcPrice * (1 + SPREAD);
+                if (dbCryptoJpy < cost) return alert("仮想通貨口座の日本円が不足しています！");
+                dbCryptoJpy -= cost;
+                dbMtcBalance += amount;
+                alert(`${amount} MTC を ¥${Math.floor(cost).toLocaleString()} で購入しました！`);
+            } else if (type === 'SELL') {
+                if (dbMtcBalance < amount) return alert("MTCの保有量が不足しています！");
+                const revenue = amount * realBtcPrice * (1 - SPREAD);
+                dbMtcBalance -= amount;
+                dbCryptoJpy += revenue;
+                alert(`${amount} MTC を売却し、 ¥${Math.floor(revenue).toLocaleString()} を獲得しました！`);
+            }
+            
+            updateUI();
+            await syncDB(`取引(${type})`);
+        }
+
+        async function syncDB(action) {
+            const { error } = await supabaseClient.from('players').update({ 
+                bank_balance: dbBankBalance,
+                crypto_jpy: dbCryptoJpy,
+                mtc_balance: dbMtcBalance
+            }).eq('user_id', currentUser.id);
+            if (error) console.error("セーブエラー", error);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
