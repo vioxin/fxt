@@ -232,7 +232,8 @@
                 const fx = player.balance || 0;
                 const bank = player.bank_balance || 0;
                 const loan = player.loan_amount || 0;
-                const total = fx + bank - loan; // 総資産の計算
+                const mtc = player.crypto_jpy || 0;
+                const total = fx + bank - loan + mtc; // 総資産の計算
                 
                 return { 
                     username: player.username, 
