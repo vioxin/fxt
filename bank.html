@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FX Game - 中央銀行</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --bg: #0b0e11; --panel: #181a20; --text: #eaecef; --text-muted: #848e9c; --accent: #fcd535; --green: #0ecb81; --red: #f6465d; --border: #2b3139; }
+        body { font-family: sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        
+        .header { width: 100%; max-width: 600px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .btn-home { background: transparent; border: 1px solid var(--border); color: var(--text); padding: 8px 15px; border-radius: 4px; text-decoration: none; transition: 0.2s; }
+        .btn-home:hover { background: var(--border); }
+
+        .bank-card { background: var(--panel); width: 100%; max-width: 600px; border-radius: 12px; border: 1px solid var(--border); padding: 30px; box-sizing: border-box; margin-bottom: 20px; }
+        .bank-card h2 { margin-top: 0; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 10px; }
+        
+        .balance-row { display: flex; justify-content: space-between; margin: 15px 0; font-size: 1.2rem; }
+        .balance-value { font-family: monospace; font-size: 1.5rem; font-weight: bold; }
+        
+        .action-area { background: #121418; padding: 20px; border-radius: 8px; margin-top: 20px; border: 1px solid var(--border); }
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; }
+        .input-group input { flex: 1; padding: 10px; background: var(--bg); border: 1px solid var(--border); color: white; border-radius: 4px; font-size: 1rem; }
+        
+        button { padding: 10px 20px; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; transition: 0.2s; color: white; }
+        .btn-transfer { background: var(--green); flex: 1; }
+        .btn-transfer:hover { background: #0b9e65; }
+        .btn-withdraw { background: #007aff; flex: 1; }
+        .btn-withdraw:hover { background: #0062cc; }
+        .btn-loan { background: var(--red); width: 100%; margin-top: 10px; font-size: 1.1rem; }
+        .btn-loan:hover { background: #c93346; }
+        .btn-repay { background: var(--accent); color: black; width: 100%; margin-top: 10px; }
+
+        .loan-status { color: var(--red); font-weight: bold; text-align: center; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🏦 セントラルバンク</h1>
+        <a href="home.html" class="btn-home">ホームに戻る</a>
+    </div>
+
+    <div class="bank-card">
+        <h2>口座情報</h2>
+        <div class="balance-row">
+            <span>🏦 銀行預金 (Bank)</span>
+            <span class="balance-value" id="disp-bank">¥---</span>
+        </div>
+        <div class="balance-row">
+            <span>📈 FX口座 (Trading)</span>
+            <span class="balance-value" id="disp-fx">¥---</span>
+        </div>
+
+        <div class="action-area">
+            <h3>資金移動</h3>
+            <div class="input-group">
+                <input type="number" id="transfer-amount" placeholder="金額を入力 (例: 100000)" step="10000">
+            </div>
+            <div class="input-group">
+                <button class="btn-transfer" onclick="transferToFX()">銀行 → FX口座へ入金</button>
+                <button class="btn-withdraw" onclick="transferToBank()">FX口座 → 銀行へ出金</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="bank-card" style="border-color: #5a1e24;">
+        <h2 style="color: var(--red);">⚠️ 闇金 (Loan)</h2>
+        <p style="color: var(--text-muted); font-size: 0.9rem;">無審査で50万円まで即日融資！※ただし3分後に強制引き落としされます。</p>
+        
+        <div id="loan-active-area" style="display: none;">
+            <div class="loan-status" id="disp-loan-amount">借入中: ¥---</div>
+            <div class="loan-status" id="disp-loan-time">返済まで: --秒</div>
+            <button class="btn-repay" onclick="repayLoan()">今すぐ全額返済する</button>
+        </div>
+
+        <div id="loan-request-area">
+            <button class="btn-loan" onclick="takeLoan()">50万円を借りる (期限: 3分)</button>
+        </div>
+    </div>
+
+    <script>
+        const SUPABASE_URL = 'https://kcjcirlqdhbighipryal.supabase.co';
+        const SUPABASE_ANON_KEY = 'sb_publishable_FiOt7O2ja2KNUeiVPakkVw_eiV7CmpO';
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let currentUser = null;
+        let dbBalance = 0; // FX口座
+        let dbBankBalance = 0; // 銀行口座
+        let dbLoanAmount = 0; // 借金額
+        let dbLoanDeadline = 0; // 返済期限(UNIXタイム)
+
+        async function init() {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) return window.location.href = 'index.html';
+            currentUser = session.user;
+            await loadData();
+            setInterval(updateLoanTimer, 1000); // 1秒ごとにタイマー更新
+        }
+
+        async function loadData() {
+            const { data } = await supabaseClient.from('players').select('*').eq('user_id', currentUser.id).single();
+            if (data) {
+                dbBalance = data.balance || 0;
+                dbBankBalance = data.bank_balance || 0;
+                dbLoanAmount = data.loan_amount || 0;
+                dbLoanDeadline = data.loan_deadline || 0;
+                updateDisplay();
+            }
+        }
+
+        function updateDisplay() {
+            document.getElementById('disp-bank').innerText = '¥' + Math.round(dbBankBalance).toLocaleString();
+            document.getElementById('disp-fx').innerText = '¥' + Math.round(dbBalance).toLocaleString();
+
+            const loanActive = dbLoanAmount > 0;
+            document.getElementById('loan-active-area').style.display = loanActive ? 'block' : 'none';
+            document.getElementById('loan-request-area').style.display = loanActive ? 'none' : 'block';
+
+            if (loanActive) {
+                document.getElementById('disp-loan-amount').innerText = '借入中: ¥' + Math.round(dbLoanAmount).toLocaleString();
+                updateLoanTimer();
+            }
+        }
+
+        function updateLoanTimer() {
+            if (dbLoanAmount <= 0) return;
+            const remainingSec = Math.floor((dbLoanDeadline - Date.now()) / 1000);
+            
+            if (remainingSec <= 0) {
+                // 期限切れ！（※実際の強制徴収はトレード画面でも行われます）
+                document.getElementById('disp-loan-time').innerText = "⚠️ 期限切れ！強制徴収中...";
+            } else {
+                document.getElementById('disp-loan-time').innerText = `返済まで: 残り ${remainingSec} 秒`;
+            }
+        }
+
+        async function saveBankDB() {
+            await supabaseClient.from('players').update({ 
+                balance: Math.round(dbBalance),
+                bank_balance: Math.round(dbBankBalance),
+                loan_amount: Math.round(dbLoanAmount),
+                loan_deadline: dbLoanDeadline
+            }).eq('user_id', currentUser.id);
+            updateDisplay();
+        }
+
+        // 銀行 → FX
+        async function transferToFX() {
+            const amount = parseInt(document.getElementById('transfer-amount').value);
+            if (!amount || amount <= 0 || amount > dbBankBalance) return alert('無効な金額か、銀行残高が足りません。');
+            dbBankBalance -= amount;
+            dbBalance += amount;
+            await saveBankDB();
+            alert('FX口座に入金しました！');
+        }
+
+        // FX → 銀行
+        async function transferToBank() {
+            const amount = parseInt(document.getElementById('transfer-amount').value);
+            if (!amount || amount <= 0 || amount > dbBalance) return alert('無効な金額か、FX残高が足りません。');
+            dbBalance -= amount;
+            dbBankBalance += amount;
+            await saveBankDB();
+            alert('銀行に出金しました！');
+        }
+
+        // 借金する
+        async function takeLoan() {
+            if (dbLoanAmount > 0) return alert('すでに借金しています！');
+            dbLoanAmount = 500000; // 50万円
+            dbLoanDeadline = Date.now() + (1200 * 60 * 1000); // 3分後
+            dbBankBalance += dbLoanAmount; // 銀行に振り込まれる
+            await saveBankDB();
+            alert('50万円を借りました。20時間以内に必ず返済してください！');
+        }
+
+        // 借金を返す
+        async function repayLoan() {
+            if (dbBankBalance >= dbLoanAmount) {
+                dbBankBalance -= dbLoanAmount;
+            } else if ((dbBankBalance + dbBalance) >= dbLoanAmount) {
+                // 銀行だけでは足りない場合、FX口座からも引く
+                const remaining = dbLoanAmount - dbBankBalance;
+                dbBankBalance = 0;
+                dbBalance -= remaining;
+            } else {
+                return alert('全財産をかき集めても返済額に足りません...！');
+            }
+            dbLoanAmount = 0;
+            dbLoanDeadline = 0;
+            await saveBankDB();
+            alert('借金を全額返済しました。');
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
