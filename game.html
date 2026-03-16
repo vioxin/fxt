@@ -335,8 +335,48 @@
             
             currentPrice = newPrice;
             priceDisplay.innerText = currentPrice.toFixed(3);
-
             lineSeries.update({ time: nowTime, value: currentPrice });
+
+            // ▼▼▼ 追加：強制ロスカットの判定 ▼▼▼
+            if (positions.length > 0) {
+                let totalPnL = 0;
+                positions.forEach(pos => {
+                    let pnl = (currentPrice - pos.entryPrice) * pos.size;
+                    if (pos.type === 'SELL') pnl = -pnl;
+                    totalPnL += pnl;
+                });
+
+                // 有効証拠金（FX残高 + 含み損益）が0以下になったら発動
+                if (dbBalance + totalPnL <= 0) {
+                    alert('💥【強制ロスカット発動】💥\nFX口座の資金が尽きたため、全ポジションを強制決済しました。');
+                    dbBalance = 0; // FX口座はすっからかんになる
+                    positions = []; // ポジション全没収
+                    allPositions[currentMode] = [];
+                    syncToDB('ロスカット');
+                }
+            }
+            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
+            // ▼▼▼ 追加：借金の強制引き落とし判定 ▼▼▼
+            if (dbLoanAmount > 0 && Date.now() > dbLoanDeadline) {
+                alert('🚨【闇金からの取り立て】🚨\n返済期限が過ぎたため、口座から強制引き落としされました。');
+                
+                // 銀行から引く
+                if (dbBankBalance >= dbLoanAmount) {
+                    dbBankBalance -= dbLoanAmount;
+                } else {
+                    // 銀行で足りない分はFX口座から引く（FX口座がマイナスになる可能性あり！）
+                    let remaining = dbLoanAmount - dbBankBalance;
+                    dbBankBalance = 0;
+                    dbBalance -= remaining; 
+                }
+                
+                dbLoanAmount = 0;
+                dbLoanDeadline = 0;
+                syncToDB('借金強制徴収');
+            }
+            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
             renderPositions();
         }
 
@@ -410,21 +450,22 @@
             balanceDisplay.innerText = 'DB通信中...';
             balanceDisplay.style.color = '#fcd535'; 
 
-            // ▼▼▼ 変更：今のモードの最新状態を、大元のタンスに反映させる ▼▼▼
             allPositions[currentMode] = positions;
 
+            // ▼ 変更：保存するデータに bank_balance 等を含める ▼
             const { error } = await supabaseClient
                 .from('players')
                 .update({ 
                     balance: Math.round(dbBalance),
-                    positions: allPositions // タンス（全モードのデータ）ごとDBに保存！
+                    bank_balance: Math.round(dbBankBalance),
+                    loan_amount: Math.round(dbLoanAmount),
+                    loan_deadline: dbLoanDeadline,
+                    positions: allPositions 
                 })
                 .eq('user_id', currentUser.id);
-            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             
             if (error) {
                 console.error('セーブ失敗:', error);
-                alert('データベースとの通信に失敗しました！');
             } else {
                 console.log(`[DB通信成功] アクション: ${actionName}`);
             }
