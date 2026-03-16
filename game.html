@@ -237,23 +237,33 @@
                 document.getElementById('disp-username').innerText = data.username;
                 dbBalance = data.balance;
                 
-                // ▼▼▼ 変更：ポジションの読み込み方法 ▼▼▼
-                // DBに保存されているデータを取り出す
                 const savedData = data.positions;
 
-                // もし過去のデータがただの配列だったら、とりあえずnormalに入れる（互換性対応）
                 if (Array.isArray(savedData)) {
                     allPositions = { low: [], normal: savedData, high: [] };
-                } 
-                // ちゃんとモードごとのタンスになっていれば、それを採用
-                else if (savedData && typeof savedData === 'object') {
+                } else if (savedData && typeof savedData === 'object') {
                     allPositions = savedData;
                 }
 
-                // 「今開いているモード（currentMode）」の引き出しからポジションを取り出す
-                positions = allPositions[currentMode] || [];
-                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                // ▼▼▼ 追加：全モードのポジションをチェックし、10個を超えていたら削除 ▼▼▼
+                let isOverLimit = false;
+                for (let mode in allPositions) {
+                    if (allPositions[mode] && allPositions[mode].length > 10) {
+                        // 最初の10個（古いもの）だけを残して残りをカット
+                        allPositions[mode] = allPositions[mode].slice(0, 10);
+                        isOverLimit = true; // 制限を超えていたフラグを立てる
+                    }
+                }
                 
+                // 今のモードのポジションをセット
+                positions = allPositions[currentMode] || [];
+
+                // もし10個を超えてカットした場合は、すぐにDBに最新のタンスを保存し直す
+                if (isOverLimit) {
+                    syncToDB('ポジション数の自動整理（10個制限）');
+                }
+                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
                 updateBalanceDisplay();
                 renderPositions();
             }
@@ -331,6 +341,13 @@
 
         // --- 取引処理 ---
         function openPosition(type) {
+            // ▼▼▼ 追加：10個持っていたらここでストップさせる ▼▼▼
+            if (positions.length >= 10) {
+                alert('ポジションは各モード最大10個までです！既存の取引を決済してから新しい注文をしてください。');
+                return; // ここで処理を終了し、下には進ませない
+            }
+            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+
             const size = parseInt(document.getElementById('input-size').value);
             const leverage = parseInt(document.getElementById('input-leverage').value);
             
