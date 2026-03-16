@@ -50,6 +50,7 @@
         .loss { color: var(--red); }
         .btn-close { background: var(--border); border: none; color: var(--text); padding: 5px 10px; border-radius: 4px; cursor: pointer; }
         .btn-close:hover { background: #3b434e; }
+        
         /* ▼▼▼ スマホ向けレスポンシブデザイン ▼▼▼ */
         @media (max-width: 768px) {
             body { 
@@ -191,23 +192,24 @@
 
         let currentUser = null;
         let dbBalance = 0;
+        let dbBankBalance = 0;
+        let dbLoanAmount = 0;
+        let dbLoanDeadline = 0;
         let allPositions = { low: [], normal: [], high: [] }; 
         let positions = [];
         let currentPrice = 150.000;
         let lineSeries;
 
-        // ▼▼▼ モード設定の追加 ▼▼▼
+        // モード設定
         const urlParams = new URLSearchParams(window.location.search);
-        const currentMode = urlParams.get('mode') || 'normal'; // 指定がなければ普通相場
+        const currentMode = urlParams.get('mode') || 'normal';
 
-        // 難易度別の振れ幅（ボラティリティ）設定
         const volatilityConfig = {
             low:    { wave1: 0.2, wave2: 0.1, wave3: 0.05, wave4: 0.01, noise: 0.005, name: "ローリスク相場 🌱" },
             normal: { wave1: 1.5, wave2: 0.5, wave3: 0.2,  wave4: 0.05, noise: 0.02,  name: "普通相場 ⚖️" },
             high:   { wave1: 5.0, wave2: 2.0, wave3: 0.8,  wave4: 0.3,  noise: 0.15,  name: "ハイリスク相場 🔥" }
         };
         const config = volatilityConfig[currentMode];
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         // 1. 起動時の処理
         async function init() {
@@ -218,20 +220,12 @@
             }
             currentUser = session.user;
             
-            // 画面左上に現在のモード名を表示
             document.getElementById('game-title').innerText = `FX Game - ${config.name}`;
 
             await loadPlayerData();
             initChart();
-            drawInitialHistory(); // チャートの過去履歴を一気に描画
+            drawInitialHistory(); 
         }
-
-        // ------------------
-        // これまでの変数の下に以下を追加
-        let dbBankBalance = 0;
-        let dbLoanAmount = 0;
-        let dbLoanDeadline = 0;
-        // ------------------
 
         async function loadPlayerData() {
             const { data, error } = await supabaseClient
@@ -243,13 +237,10 @@
             if (data) {
                 document.getElementById('disp-username').innerText = data.username;
                 dbBalance = data.balance;
-                
-                // ▼ 追加：銀行と借金データを読み込む ▼
                 dbBankBalance = data.bank_balance || 0;
                 dbLoanAmount = data.loan_amount || 0;
                 dbLoanDeadline = data.loan_deadline || 0;
                 
-                // --- 以下はこれまでと同じ(ポジション読み込み処理) ---
                 const savedData = data.positions;
                 if (Array.isArray(savedData)) {
                     allPositions = { low: [], normal: savedData, high: [] };
@@ -277,7 +268,6 @@
             document.getElementById('disp-balance').innerText = '¥' + Math.round(dbBalance).toLocaleString();
         }
 
-        // --- チャートと市場の処理 ---
         function initChart() {
             const chartContainer = document.getElementById('tvchart');
             const chartOptions = {
@@ -296,7 +286,6 @@
             });
         }
 
-        // ▼▼▼ 数式の変更: config変数を使って振れ幅を変える ▼▼▼
         function getGlobalPrice(timeInSeconds) {
             let price = 150.000; 
             
@@ -309,13 +298,11 @@
             
             return price + noise;
         }
-        // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
         function drawInitialHistory() {
             const historyData = [];
             const nowTime = Math.floor(Date.now() / 1000);
             
-            // 過去5分間の履歴を描画
             for (let i = 300; i >= 0; i--) {
                 const t = nowTime - i;
                 historyData.push({ time: t, value: getGlobalPrice(t) });
@@ -337,7 +324,7 @@
             priceDisplay.innerText = currentPrice.toFixed(3);
             lineSeries.update({ time: nowTime, value: currentPrice });
 
-            // ▼▼▼ 追加：強制ロスカットの判定 ▼▼▼
+            // 強制ロスカットの判定（バグ修正版）
             if (positions.length > 0) {
                 let totalPnL = 0;
                 positions.forEach(pos => {
@@ -346,26 +333,30 @@
                     totalPnL += pnl;
                 });
 
-                // 有効証拠金（FX残高 + 含み損益）が0以下になったら発動
                 if (dbBalance + totalPnL <= 0) {
                     alert('💥【強制ロスカット発動】💥\nFX口座の資金が尽きたため、全ポジションを強制決済しました。');
-                    dbBalance = 0; // FX口座はすっからかんになる
-                    positions = []; // ポジション全没収
+                    
+                    // 損失を確定させる（マイナスになる可能性あり）
+                    dbBalance = dbBalance + totalPnL; 
+                    
+                    // 借金も銀行残高もない場合のみゼロカット発動
+                    if (dbBalance < 0 && dbLoanAmount === 0 && dbBankBalance === 0) {
+                        dbBalance = 0; 
+                    }
+                    
+                    positions = []; 
                     allPositions[currentMode] = [];
                     syncToDB('ロスカット');
                 }
             }
-            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-            // ▼▼▼ 追加：借金の強制引き落とし判定 ▼▼▼
+            // 借金の強制引き落とし判定（20時間経過で発動）
             if (dbLoanAmount > 0 && Date.now() > dbLoanDeadline) {
                 alert('🚨【闇金からの取り立て】🚨\n返済期限が過ぎたため、口座から強制引き落としされました。');
                 
-                // 銀行から引く
                 if (dbBankBalance >= dbLoanAmount) {
                     dbBankBalance -= dbLoanAmount;
                 } else {
-                    // 銀行で足りない分はFX口座から引く（FX口座がマイナスになる可能性あり！）
                     let remaining = dbLoanAmount - dbBankBalance;
                     dbBankBalance = 0;
                     dbBalance -= remaining; 
@@ -375,34 +366,42 @@
                 dbLoanDeadline = 0;
                 syncToDB('借金強制徴収');
             }
-            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
             renderPositions();
         }
 
-        // 1秒ごとに市場を同期
         setInterval(syncGlobalMarket, 1000);
 
-        // --- 取引処理 ---
+        // 取引処理（多重注文・不正レバレッジバグ修正版）
         function openPosition(type) {
-            // ▼▼▼ 追加：10個持っていたらここでストップさせる ▼▼▼
             if (positions.length >= 10) {
                 alert('ポジションは各モード最大10個までです！既存の取引を決済してから新しい注文をしてください。');
-                return; // ここで処理を終了し、下には進ませない
+                return; 
             }
-            // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
             const size = parseInt(document.getElementById('input-size').value);
             const leverage = parseInt(document.getElementById('input-leverage').value);
             
+            // 入力値のバリデーション（開発者ツールによるHTML書き換え対策）
             if (isNaN(size) || size <= 0) return alert('数量が正しくありません');
+            if (isNaN(leverage) || leverage < 1 || leverage > 1000) return alert('不正なレバレッジです');
             
+            // 現在すでに使っている証拠金を計算
+            let usedMargin = 0;
+            positions.forEach(pos => {
+                let lev = pos.leverage || 25; // 過去のデータ用
+                usedMargin += (pos.entryPrice * pos.size) / lev;
+            });
+
             const requiredMargin = (currentPrice * size) / leverage;
-            if (dbBalance < requiredMargin) {
-                return alert('残高不足です。レバレッジを上げるか数量を減らしてください。');
+            
+            // 残高から「すでに使っている分」を引いた額で判定
+            if (dbBalance - usedMargin < requiredMargin) {
+                return alert('証拠金（利用可能残高）が不足しています。');
             }
 
-            positions.push({ type, size, entryPrice: currentPrice, id: Date.now() });
+            // 保存データに leverage を追加
+            positions.push({ type, size, leverage, entryPrice: currentPrice, id: Date.now() });
             renderPositions();
             syncToDB('注文(' + type + ')');
         }
@@ -452,7 +451,6 @@
 
             allPositions[currentMode] = positions;
 
-            // ▼ 変更：保存するデータに bank_balance 等を含める ▼
             const { error } = await supabaseClient
                 .from('players')
                 .update({ 
@@ -482,24 +480,34 @@
             window.location.href = 'index.html';
         }
 
-        // 起動
         window.onload = init;
         
-        // タブ閉じ対策
-        // タブ閉じ対策
+        // タイムリープ対策（タブ閉じ・非表示時の確実なセーブ）
         window.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden' && currentUser) {
-                // ▼ 今のモードの最新状態をタンスに反映してから保存する
                 allPositions[currentMode] = positions;
 
                 const url = `${SUPABASE_URL}/rest/v1/players?user_id=eq.${currentUser.id}`;
                 const payload = JSON.stringify({
                     balance: Math.round(dbBalance),
-                    positions: allPositions // ← タンスごと保存するように修正！
+                    bank_balance: Math.round(dbBankBalance),
+                    loan_amount: Math.round(dbLoanAmount),
+                    loan_deadline: dbLoanDeadline,
+                    positions: allPositions
                 });
-                const headers = new Blob([payload], { type: 'application/json' });
-                // ※本来は navigator.sendBeacon(url, headers) で送信する処理が必要です
-                // 簡易的なセーブとして fetch(url, { method: 'PATCH', headers: {...}, body: payload, keepalive: true }) 等を使うのが確実です。
+
+                // fetch + keepalive を使い、タブが閉じられてもバックグラウンドで強制送信する
+                fetch(url, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'apikey': SUPABASE_ANON_KEY,
+                        'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                        'Prefer': 'return=minimal'
+                    },
+                    body: payload,
+                    keepalive: true
+                }).catch(err => console.error("終了時の保存に失敗", err));
             }
         });
     </script>
