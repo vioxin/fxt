@@ -226,6 +226,13 @@
             drawInitialHistory(); // チャートの過去履歴を一気に描画
         }
 
+        // ------------------
+        // これまでの変数の下に以下を追加
+        let dbBankBalance = 0;
+        let dbLoanAmount = 0;
+        let dbLoanDeadline = 0;
+        // ------------------
+
         async function loadPlayerData() {
             const { data, error } = await supabaseClient
                 .from('players')
@@ -237,32 +244,29 @@
                 document.getElementById('disp-username').innerText = data.username;
                 dbBalance = data.balance;
                 
+                // ▼ 追加：銀行と借金データを読み込む ▼
+                dbBankBalance = data.bank_balance || 0;
+                dbLoanAmount = data.loan_amount || 0;
+                dbLoanDeadline = data.loan_deadline || 0;
+                
+                // --- 以下はこれまでと同じ(ポジション読み込み処理) ---
                 const savedData = data.positions;
-
                 if (Array.isArray(savedData)) {
                     allPositions = { low: [], normal: savedData, high: [] };
                 } else if (savedData && typeof savedData === 'object') {
                     allPositions = savedData;
                 }
 
-                // ▼▼▼ 追加：全モードのポジションをチェックし、10個を超えていたら削除 ▼▼▼
                 let isOverLimit = false;
                 for (let mode in allPositions) {
                     if (allPositions[mode] && allPositions[mode].length > 10) {
-                        // 最初の10個（古いもの）だけを残して残りをカット
                         allPositions[mode] = allPositions[mode].slice(0, 10);
-                        isOverLimit = true; // 制限を超えていたフラグを立てる
+                        isOverLimit = true;
                     }
                 }
-                
-                // 今のモードのポジションをセット
                 positions = allPositions[currentMode] || [];
 
-                // もし10個を超えてカットした場合は、すぐにDBに最新のタンスを保存し直す
-                if (isOverLimit) {
-                    syncToDB('ポジション数の自動整理（10個制限）');
-                }
-                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+                if (isOverLimit) syncToDB('自動整理');
 
                 updateBalanceDisplay();
                 renderPositions();
