@@ -73,8 +73,16 @@
         async function loadPlayerData() {
             const { data } = await supabaseClient.from('players').select('*').eq('user_id', currentUser.id).single();
             if (data) {
-                document.getElementById('input-username').value = data.username;
-                document.getElementById('disp-balance').innerText = '¥' + Math.round(data.balance).toLocaleString();
+                const fxBalance = data.balance || 0;
+                const bankBalance = data.bank_balance || 0;
+                const loanAmount = data.loan_amount || 0;
+                
+                // 総資産 ＝ FX口座 ＋ 銀行口座 － 借金
+                const totalAssets = fxBalance + bankBalance - loanAmount;
+
+                // 画面には総資産を表示する
+                document.getElementById('disp-balance').innerText = '¥' + Math.round(totalAssets).toLocaleString();
+                // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
             }
         }
 
