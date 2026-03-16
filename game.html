@@ -114,6 +114,13 @@
                 min-width: 600px; /* スマホでも文字が潰れないように最低幅を確保 */
             }
         }
+        /* AI予測パネル */
+        .ai-panel { background-color: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 15px; margin-top: 15px; }
+        .ai-panel h3 { margin: 0 0 10px 0; font-size: 0.9rem; color: #fcd535; display: flex; justify-content: space-between; align-items: center; }
+        .premium-badge { background: linear-gradient(45deg, #ffd700, #ff8c00); color: #000; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: bold; }
+        .btn-ai { width: 100%; background: #2b3139; color: var(--text); border: 1px solid #fcd535; padding: 10px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn-ai:hover { background: #fcd535; color: #000; }
+        #ai-result { font-size: 0.85rem; color: var(--text-muted); margin-top: 10px; min-height: 40px; }
         /* ▲▲▲ スマホ向けレスポンシブデザイン ここまで ▲▲▲ */
     </style>
 </head>
@@ -164,6 +171,11 @@
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 20px;">
                 ※この画面はデモです。実際の取引システムとは連動していません。
             </p>
+            <div class="ai-panel">
+                <h3>🤖 AI相場予測 <span class="premium-badge">Premium</span></h3>
+                <button class="btn-ai" onclick="predictMarket()">AIに今後の値動きを分析させる</button>
+                <div id="ai-result">待機中...</div>
+            </div>
         </div>
     </div>
 
@@ -199,6 +211,7 @@
         let positions = [];
         let currentPrice = 150.000;
         let lineSeries;
+        let isPremium = false; // プレミアム会員かどうか
 
         // モード設定
         const urlParams = new URLSearchParams(window.location.search);
@@ -240,7 +253,8 @@
                 dbBankBalance = data.bank_balance || 0;
                 dbLoanAmount = data.loan_amount || 0;
                 dbLoanDeadline = data.loan_deadline || 0;
-                
+                // プレミアム状態を読み込む
+                isPremium = data.is_premium || false;
                 const savedData = data.positions;
                 if (Array.isArray(savedData)) {
                     allPositions = { low: [], normal: savedData, high: [] };
@@ -479,7 +493,55 @@
             await supabaseClient.auth.signOut();
             window.location.href = 'index.html';
         }
+        async function predictMarket() {
+            // プレミアム会員じゃない場合は弾く！
+            if (!isPremium) {
+                alert('👑 【AI予測機能】はプレミアムプラン限定です！\n勝率を劇的に上げるAIアドバイスを受け取るには、プレミアムにアップグレードしてください。');
+                return;
+            }
 
+            const aiResultDisplay = document.getElementById('ai-result');
+            aiResultDisplay.style.color = 'var(--text)';
+            aiResultDisplay.innerText = '🤖 AIが現在の相場データを分析中...';
+
+            try {
+                // 【重要】本来はAPIキーを直書きするのは危険ですが、今回はテスト用です。
+                const API_KEY = 'ここに取得したGeminiのAPIキーを貼る'; 
+                const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
+
+                // AIに渡す指示（プロンプト）
+                const prompt = `
+                    あなたは冷徹で優秀なプロのFXトレーダーです。
+                    現在の価格は ${currentPrice.toFixed(3)} 円、現在の相場モードは「${config.name}」です。
+                    この情報をもとに、今後数分間の値動きを予想し、プレイヤーに「買い(BUY)」「売り(SELL)」「様子見」のいずれかの推奨アクションと、その理由を簡潔に50文字程度で教えてください。
+                    エンタメ感のある口調でお願いします。
+                `;
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
+
+                const data = await response.json();
+        
+                // AIの返答を画面に表示
+                if (data.candidates && data.candidates.length > 0) {
+                    const aiText = data.candidates[0].content.parts[0].text;
+                    aiResultDisplay.style.color = '#fcd535';
+                    aiResultDisplay.innerText = `「${aiText}」`;
+                } else {
+                    throw new Error('AIからの応答が空でした');
+                }
+
+            } catch (error) {
+                    console.error('AI予測エラー:', error);
+                    aiResultDisplay.style.color = 'var(--red)';
+                    aiResultDisplay.innerText = '⚠️ AIサーバーとの通信に失敗しました。';
+            }
+        }
         window.onload = init;
         
         // タイムリープ対策（タブ閉じ・非表示時の確実なセーブ）
