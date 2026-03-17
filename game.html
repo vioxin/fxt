@@ -527,10 +527,14 @@
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }]
-                    })
+                    body: JSON.stringify({ /* ... */ })
                 });
+
+                // 👇ここから下の3行を、fetchのすぐ下に追加してください！👇
+                if (!response.ok) {
+                    alert("⚠️エラー番号: " + response.status + " が出ました！");
+                }
+                // 👆ここまで👆
 
                 const data = await response.json();
         
@@ -582,3 +586,4 @@
     </script>
 </body>
 </html>
+
