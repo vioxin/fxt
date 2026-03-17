@@ -551,6 +551,7 @@
                     console.error('AI予測エラー:', error);
                     aiResultDisplay.style.color = 'var(--red)';
                     aiResultDisplay.innerText = '⚠️ AIサーバーとの通信に失敗しました。';
+                    alert("⚠️エラー番号: " + response.status + " が出ました！");
             }
         }
         window.onload = init;
