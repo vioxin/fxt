@@ -53,66 +53,17 @@
         
         /* ▼▼▼ スマホ向けレスポンシブデザイン ▼▼▼ */
         @media (max-width: 768px) {
-            body { 
-                height: auto; 
-                min-height: 100vh; 
-                overflow-y: auto; /* 画面全体の縦スクロールを許可 */
-            }
-            
-            .header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 15px;
-            }
-            
-            .user-info {
-                width: 100%;
-                justify-content: space-between;
-                flex-wrap: wrap; /* 要素が多い場合は折り返す */
-            }
-
-            .main-container {
-                flex-direction: column; /* チャートと注文パネルを縦並びに */
-                height: auto;
-                overflow: visible;
-            }
-
-            .chart-area {
-                width: 100%;
-                height: 350px; /* スマホでのチャートの高さ */
-                border-right: none;
-                border-bottom: 1px solid var(--border);
-                flex: none; 
-            }
-
-            .order-panel {
-                width: 100%;
-                box-sizing: border-box; /* 画面幅にぴったり収める */
-                display: grid; 
-                grid-template-columns: 1fr 1fr; /* 数量とレバレッジを横並びにして省スペース化 */
-                gap: 10px;
-            }
-
-            /* グリッドレイアウトの微調整 */
-            .order-panel .input-group:first-child {
-                grid-column: 1 / -1; /* 価格表示は横幅いっぱい */
-            }
-            .trade-buttons {
-                grid-column: 1 / -1; /* ボタンも横幅いっぱい */
-                margin-top: 5px;
-            }
-            .order-panel p {
-                grid-column: 1 / -1;
-            }
-
-            .positions-area {
-                height: auto; 
-                overflow-x: auto; /* テーブルがはみ出た場合は横スクロールさせる */
-            }
-            
-            table {
-                min-width: 600px; /* スマホでも文字が潰れないように最低幅を確保 */
-            }
+            body { height: auto; min-height: 100vh; overflow-y: auto; }
+            .header { flex-direction: column; align-items: flex-start; gap: 15px; }
+            .user-info { width: 100%; justify-content: space-between; flex-wrap: wrap; }
+            .main-container { flex-direction: column; height: auto; overflow: visible; }
+            .chart-area { width: 100%; height: 350px; border-right: none; border-bottom: 1px solid var(--border); flex: none; }
+            .order-panel { width: 100%; box-sizing: border-box; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+            .order-panel .input-group:first-child { grid-column: 1 / -1; }
+            .trade-buttons { grid-column: 1 / -1; margin-top: 5px; }
+            .order-panel p { grid-column: 1 / -1; }
+            .positions-area { height: auto; overflow-x: auto; }
+            table { min-width: 600px; }
         }
         /* AI予測パネル */
         .ai-panel { background-color: var(--panel); border: 1px solid var(--border); border-radius: 4px; padding: 15px; margin-top: 15px; }
@@ -121,7 +72,6 @@
         .btn-ai { width: 100%; background: #2b3139; color: var(--text); border: 1px solid #fcd535; padding: 10px; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
         .btn-ai:hover { background: #fcd535; color: #000; }
         #ai-result { font-size: 0.85rem; color: var(--text-muted); margin-top: 10px; min-height: 40px; }
-        /* ▲▲▲ スマホ向けレスポンシブデザイン ここまで ▲▲▲ */
     </style>
 </head>
 <body>
@@ -169,7 +119,8 @@
                 <button class="btn-trade btn-buy" onclick="openPosition('BUY')">買 (BUY)</button>
             </div>
             <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 20px;">
-                ※この画面はデモです。実際の取引システムとは連動していません。
+                ※利益が出た決済には5%の手数料がかかります。<br>
+                ※毎日最初のログイン時に所持金から20%の税金が引かれます。
             </p>
             <div class="ai-panel">
                 <h3>🤖 AI相場予測 <span class="premium-badge">Premium</span></h3>
@@ -209,11 +160,13 @@
         let dbLoanDeadline = 0;
         let allPositions = { low: [], normal: [], high: [] }; 
         let positions = [];
+        
+        let basePrice = 150.000; 
         let currentPrice = 150.000;
+        
         let lineSeries;
-        let isPremium = false; // プレミアム会員かどうか
+        let isPremium = false;
 
-        // モード設定
         const urlParams = new URLSearchParams(window.location.search);
         const currentMode = urlParams.get('mode') || 'normal';
 
@@ -236,8 +189,21 @@
             document.getElementById('game-title').innerText = `FX Game - ${config.name}`;
 
             await loadPlayerData();
+            await fetchBasePrice(); 
             initChart();
             drawInitialHistory(); 
+        }
+
+        // ベース価格を取得
+        async function fetchBasePrice() {
+            const { data, error } = await supabaseClient
+                .from('fx_market')
+                .select('current_price')
+                .eq('id', 1)
+                .single();
+            if (data) {
+                basePrice = data.current_price;
+            }
         }
 
         async function loadPlayerData() {
@@ -253,8 +219,23 @@
                 dbBankBalance = data.bank_balance || 0;
                 dbLoanAmount = data.loan_amount || 0;
                 dbLoanDeadline = data.loan_deadline || 0;
-                // プレミアム状態を読み込む
                 isPremium = data.is_premium || false;
+                
+                // ★追加: 毎日1回の所得税（所持金の20%）徴収システム
+                const today = new Date().toDateString(); // 日付文字列（例: "Tue Mar 17 2026"）
+                const lastTaxDate = localStorage.getItem('last_tax_date_' + currentUser.id);
+                
+                let taxCollected = false;
+                if (lastTaxDate !== today) {
+                    if (dbBalance > 0) {
+                        const tax = Math.floor(dbBalance * 0.20); // 20%計算
+                        dbBalance -= tax;
+                        alert(`💸 【税金徴収】\n新しい1日が始まりました！\n所持金から所得税(20%)として ¥${tax.toLocaleString()} が引かれました。`);
+                        taxCollected = true;
+                    }
+                    localStorage.setItem('last_tax_date_' + currentUser.id, today);
+                }
+
                 const savedData = data.positions;
                 if (Array.isArray(savedData)) {
                     allPositions = { low: [], normal: savedData, high: [] };
@@ -271,7 +252,8 @@
                 }
                 positions = allPositions[currentMode] || [];
 
-                if (isOverLimit) syncToDB('自動整理');
+                // 限界オーバーか、税金が引かれたらDBをセーブ
+                if (isOverLimit || taxCollected) syncToDB('ログイン時整理＆税金');
 
                 updateBalanceDisplay();
                 renderPositions();
@@ -301,15 +283,12 @@
         }
 
         function getGlobalPrice(timeInSeconds) {
-            let price = 150.000; 
-            
+            let price = basePrice; 
             price += Math.sin(timeInSeconds / 500) * config.wave1;
             price += Math.cos(timeInSeconds / 123) * config.wave2;
             price += Math.sin(timeInSeconds / 31)  * config.wave3;
             price += Math.cos(timeInSeconds / 7)   * config.wave4;
-            
             const noise = (Math.sin(timeInSeconds * 12.345) * 10000 % 1) * config.noise;
-            
             return price + noise;
         }
 
@@ -317,8 +296,9 @@
             const historyData = [];
             const nowTime = Math.floor(Date.now() / 1000);
             
-            for (let i = 300; i >= 0; i--) {
-                const t = nowTime - i;
+            // 30秒刻みで過去の履歴を描画する
+            for (let i = 10; i >= 0; i--) {
+                const t = nowTime - (i * 30);
                 historyData.push({ time: t, value: getGlobalPrice(t) });
             }
             lineSeries.setData(historyData);
@@ -327,7 +307,11 @@
             document.getElementById('current-price').innerText = currentPrice.toFixed(3);
         }
 
-        function syncGlobalMarket() {
+        // ★変更: 同期もチャート描画も「30秒に1回」にまとめる
+        async function syncGlobalMarket() {
+            // まず最新のベース価格をSupabaseから取得
+            await fetchBasePrice();
+
             const nowTime = Math.floor(Date.now() / 1000);
             const newPrice = getGlobalPrice(nowTime);
             
@@ -338,7 +322,6 @@
             priceDisplay.innerText = currentPrice.toFixed(3);
             lineSeries.update({ time: nowTime, value: currentPrice });
 
-            // 強制ロスカットの判定（バグ修正版）
             if (positions.length > 0) {
                 let totalPnL = 0;
                 positions.forEach(pos => {
@@ -349,25 +332,18 @@
 
                 if (dbBalance + totalPnL <= 0) {
                     alert('💥【強制ロスカット発動】💥\nFX口座の資金が尽きたため、全ポジションを強制決済しました。');
-                    
-                    // 損失を確定させる（マイナスになる可能性あり）
                     dbBalance = dbBalance + totalPnL; 
-                    
-                    // 借金も銀行残高もない場合のみゼロカット発動
                     if (dbBalance < 0 && dbLoanAmount === 0 && dbBankBalance === 0) {
                         dbBalance = 0; 
                     }
-                    
                     positions = []; 
                     allPositions[currentMode] = [];
                     syncToDB('ロスカット');
                 }
             }
 
-            // 借金の強制引き落とし判定（20時間経過で発動）
             if (dbLoanAmount > 0 && Date.now() > dbLoanDeadline) {
                 alert('🚨【闇金からの取り立て】🚨\n返済期限が過ぎたため、口座から強制引き落としされました。');
-                
                 if (dbBankBalance >= dbLoanAmount) {
                     dbBankBalance -= dbLoanAmount;
                 } else {
@@ -375,7 +351,6 @@
                     dbBankBalance = 0;
                     dbBalance -= remaining; 
                 }
-                
                 dbLoanAmount = 0;
                 dbLoanDeadline = 0;
                 syncToDB('借金強制徴収');
@@ -384,37 +359,45 @@
             renderPositions();
         }
 
-        setInterval(syncGlobalMarket, 1000);
+        // ★30秒ごとに実行（チャートも価格もここで一気に更新）
+        setInterval(syncGlobalMarket, 30000);
 
-        // 取引処理（多重注文・不正レバレッジバグ修正版）
         function openPosition(type) {
             if (positions.length >= 10) {
-                alert('ポジションは各モード最大10個までです！既存の取引を決済してから新しい注文をしてください。');
+                alert('ポジションは各モード最大10個までです！');
                 return; 
             }
 
             const size = parseInt(document.getElementById('input-size').value);
             const leverage = parseInt(document.getElementById('input-leverage').value);
             
-            // 入力値のバリデーション（開発者ツールによるHTML書き換え対策）
             if (isNaN(size) || size <= 0) return alert('数量が正しくありません');
             if (isNaN(leverage) || leverage < 1 || leverage > 1000) return alert('不正なレバレッジです');
             
-            // 現在すでに使っている証拠金を計算
             let usedMargin = 0;
             positions.forEach(pos => {
-                let lev = pos.leverage || 25; // 過去のデータ用
+                let lev = pos.leverage || 25;
                 usedMargin += (pos.entryPrice * pos.size) / lev;
             });
 
             const requiredMargin = (currentPrice * size) / leverage;
             
-            // 残高から「すでに使っている分」を引いた額で判定
             if (dbBalance - usedMargin < requiredMargin) {
                 return alert('証拠金（利用可能残高）が不足しています。');
             }
 
-            // 保存データに leverage を追加
+            let marketImpact = (size / 10000) * 0.050; 
+            if (type === 'SELL') marketImpact = -marketImpact; 
+
+            supabaseClient.from('fx_market').select('current_price').eq('id', 1).single()
+                .then(({data}) => {
+                    if(data) {
+                        let newBase = data.current_price + marketImpact;
+                        basePrice = newBase; 
+                        supabaseClient.from('fx_market').update({ current_price: newBase }).eq('id', 1).then();
+                    }
+                });
+
             positions.push({ type, size, leverage, entryPrice: currentPrice, id: Date.now() });
             renderPositions();
             syncToDB('注文(' + type + ')');
@@ -426,6 +409,13 @@
                 const pos = positions[index];
                 let pnl = (currentPrice - pos.entryPrice) * pos.size;
                 if (pos.type === 'SELL') pnl = -pnl;
+
+                // ★追加: 利益が出た時のみ、5%の手数料を引く
+                if (pnl > 0) {
+                    const fee = pnl * 0.05; // 手数料5%
+                    pnl = pnl - fee; // 利益から引く
+                    alert(`💰 利益確定！\n利益から5%の手数料(¥${Math.round(fee).toLocaleString()})が引かれました。\n最終利益: ¥${Math.round(pnl).toLocaleString()}`);
+                }
 
                 dbBalance += pnl; 
                 positions.splice(index, 1);
@@ -457,7 +447,6 @@
             });
         }
 
-        // DBへのセーブ処理
         async function syncToDB(actionName) {
             const balanceDisplay = document.getElementById('disp-balance');
             balanceDisplay.innerText = 'DB通信中...';
@@ -478,8 +467,6 @@
             
             if (error) {
                 console.error('セーブ失敗:', error);
-            } else {
-                console.log(`[DB通信成功] アクション: ${actionName}`);
             }
 
             setTimeout(() => {
@@ -488,13 +475,12 @@
             }, 500);
         }
 
-        // ログアウト処理
         async function logout() {
             await supabaseClient.auth.signOut();
             window.location.href = 'index.html';
         }
+
         async function predictMarket() {
-            // プレミアム会員じゃない場合は弾く！
             if (!isPremium) {
                 alert('👑 【AI予測機能】はプレミアムプラン限定です！\n勝率を劇的に上げるAIアドバイスを受け取るには、プレミアムにアップグレードしてください。');
                 return;
@@ -505,18 +491,11 @@
             aiResultDisplay.innerText = '🤖 AIが現在の相場データを分析中...';
 
             try {
-                // 【重要】本来はAPIキーを直書きするのは危険ですが、今回はテスト用です。
-                // ▼ パッと見はただの謎の文字列（これでGitHubの警備員とBotの目を欺きます）
                 const secretCode = 'QUl6YVN5ここにさっきコピーした暗号化された文字列を貼る';
-
-                // ▼ atob() を使うと、実行する瞬間だけ元の「AIzaSy...」に戻ります！
                 const API_KEY = atob(secretCode); 
 
-                // 最新の2.5モデルのURL
                 const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${API_KEY}`;
                 
-
-                // AIに渡す指示（プロンプト）
                 const prompt = `
                     あなたは冷徹で優秀なプロのFXトレーダーです。
                     現在の価格は ${currentPrice.toFixed(3)} 円、現在の相場モードは「${config.name}」です。
@@ -527,18 +506,18 @@
                 const response = await fetch(url, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ /* ... */ })
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
                 });
 
-                // 👇ここから下の3行を、fetchのすぐ下に追加してください！👇
                 if (!response.ok) {
                     alert("⚠️エラー番号: " + response.status + " が出ました！");
+                    throw new Error('API通信エラー: ' + response.status);
                 }
-                // 👆ここまで👆
 
                 const data = await response.json();
         
-                // AIの返答を画面に表示
                 if (data.candidates && data.candidates.length > 0) {
                     const aiText = data.candidates[0].content.parts[0].text;
                     aiResultDisplay.style.color = '#fcd535';
@@ -550,13 +529,12 @@
             } catch (error) {
                     console.error('AI予測エラー:', error);
                     aiResultDisplay.style.color = 'var(--red)';
-                    aiResultDisplay.innerText = '⚠️ AIサーバーとの通信に失敗しました。'+ response.status;
-                    alert("⚠️エラー番号: " + response.status + " が出ました！");
+                    aiResultDisplay.innerText = '⚠️ AIサーバーとの通信に失敗しました。';
             }
         }
+
         window.onload = init;
         
-        // タイムリープ対策（タブ閉じ・非表示時の確実なセーブ）
         window.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden' && currentUser) {
                 allPositions[currentMode] = positions;
@@ -570,7 +548,6 @@
                     positions: allPositions
                 });
 
-                // fetch + keepalive を使い、タブが閉じられてもバックグラウンドで強制送信する
                 fetch(url, {
                     method: 'PATCH',
                     headers: {
@@ -587,4 +564,3 @@
     </script>
 </body>
 </html>
-
